@@ -1,0 +1,9 @@
+torch
+numpy
+pandas
+matplotlib
+fastapi
+uvicorn
+pydantic
+nest_asyncio
+requests
