@@ -1087,81 +1087,104 @@ scheduler.load_state_dict(torch.load(scheduler_save_path))
 output = generate(llama_with_cosine, MASTER_CONFIG)
 print(output)
 
-"""## 接下来可以整点花活儿，比如：部署一个异步的远程服务"""
-# Optional: deploy an async remote API (e.g. FastAPI)
+# API 伺服器已獨立至 server.py，請執行: python server.py
+# API server is in server.py; run: python server.py
+############################################################################
+# """## 接下来可以整点花活儿，比如：部署一个异步的远程服务"""
+# # Optional: deploy an async remote API (e.g. FastAPI)
 
-# !pip install fastapi uvicorn
+# # !pip install fastapi uvicorn
 
-from fastapi import FastAPI
-from pydantic import BaseModel
-import torch
-import torch.nn.functional as F
+# from fastapi import FastAPI
+# from fastapi.middleware.cors import CORSMiddleware
+# from pydantic import BaseModel
+# import torch
+# import torch.nn.functional as F
 
-# 初始化 FastAPI
-# Initialize FastAPI app
-app = FastAPI()
+# # 初始化 FastAPI
+# # Initialize FastAPI app
+# app = FastAPI()
 
-# 模型加载
-# Load model for API
-model_path = "./hf_model_save/pytorch_model.bin"
-model = Llama(MASTER_CONFIG)
-model.load_state_dict(torch.load(model_path))
-model.eval()
+# # 允許 Demo 前端 (app.py 預設 port 5500) 跨域呼叫
+# # CORS for demo app (app.py on port 5500)
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["http://localhost:5500", "http://127.0.0.1:5500"],
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
 
-class InputData(BaseModel):
-    idx: list
+# # 模型加载
+# # Load model for API
+# model_path = "./hf_model_save/pytorch_model.bin"
+# model = Llama(MASTER_CONFIG)
+# model.load_state_dict(torch.load(model_path))
+# model.eval()
 
-@app.post("/generate/")
-async def generate(model, config=MASTER_CONFIG, max_new_tokens=20):
-    # 生成随机数，作为输入数据, 5 行一列，代表输入 5 个字符。 这个地方可以自行替换其他随机数测试。
-    # Start with 5x1 zeros; replace with custom input if needed
-    idx = torch.zeros(5, 1).long()
-    print(idx[:, -config['context_window']:])
-    for _ in range(max_new_tokens):
-        # 因为推理的时候，依赖后面的 n 个 token，所以滑动窗口要从后往前选择输入数据的倒数几个 token，这个是超过字符数量会对输入进行截断，只选取最后几个token：idx[:, -config['context_window']:]
-        # Use last context_window tokens (causal)
-        logits = model(idx[:, -config['context_window']:])
-        # print(logits.size())
-        # 得到模型输出的结果，进行解码，这里 logits[:, -1, :]挺抽象的，实际上第一维度是输入的字符数，第二维度是时间步，第三维度是词表
-        # Last time step logits (batch, vocab)
-        # 即，对每一步的解码结果，取最后一个时间步的数据，作为输出的数据。解码的过程是第一次解码，输入 5 个 token，第二次解码依赖的是原来 5 个 token 的最后 4 个，加上上一步解码生成的一个，也是 5 个 token，如此循环。
-        last_time_step_logits = logits[:, -1, :]
-        # print('last_time_step_logits')
-        # print(last_time_step_logits.shape)
-        # 计算概率分布
-        # Softmax for next-token distribution
-        p = F.softmax(last_time_step_logits, dim=-1)
-        # print('p_shape')
-        # print(p.shape)
-        # 根据概率分布计算下一个 token，这里使用 torch.multinomial 做的是随机采样
-        # Sample next token
-        idx_next = torch.multinomial(p, num_samples=1)
-        # print('idx_next_shape')
-        # print(idx_next.shape)
-        # 将新的 idx 通过张量拼接写入到解码序列中
-        # Append to sequence
-        idx = torch.cat([idx, idx_next], dim=-1)
-    # 使用之前定义的解码函数，将ID转换为汉字，我们得到的 5 行 21 列的数据，来源于每一个输入字符作为开始位置，生成 20 个字符。 因为 5 个输入都是 0 ，在词表中编号为 0 的数据是'\n'。
-    # Decode IDs to text and return
-    print(idx.shape)
-    return [decode(x) for x in idx.tolist()]
+# class InputData(BaseModel):
+#     idx: list
 
-# 在 Colab 里启动还是挺麻烦的。  建议把所有代码整理一下，在服务器，或者个人电脑里运行
-# Running in Colab is cumbersome; better to run on a server or local machine
-import nest_asyncio
-import uvicorn
+# @app.get("/generate/")
+# async def generate_help():
+#     """瀏覽器 GET 會看到此說明；生成請用 POST。"""
+#     return {
+#         "message": "請使用 POST 請求。例如: curl -X POST http://localhost:8000/generate/ -H \"Content-Type: application/json\" -d '{\"idx\": [[0]]}'",
+#         "doc": "POST /generate/，body: {\"idx\": [[token_id, ...], ...]}（可選 max_new_tokens）",
+#     }
 
-nest_asyncio.apply()
+# @app.post("/generate/")
+# async def generate(model, config=MASTER_CONFIG, max_new_tokens=20):
+#     # 生成随机数，作为输入数据, 5 行一列，代表输入 5 个字符。 这个地方可以自行替换其他随机数测试。
+#     # Start with 5x1 zeros; replace with custom input if needed
+#     idx = torch.zeros(5, 1).long()
+#     print(idx[:, -config['context_window']:])
+#     for _ in range(max_new_tokens):
+#         # 因为推理的时候，依赖后面的 n 个 token，所以滑动窗口要从后往前选择输入数据的倒数几个 token，这个是超过字符数量会对输入进行截断，只选取最后几个token：idx[:, -config['context_window']:]
+#         # Use last context_window tokens (causal)
+#         logits = model(idx[:, -config['context_window']:])
+#         # print(logits.size())
+#         # 得到模型输出的结果，进行解码，这里 logits[:, -1, :]挺抽象的，实际上第一维度是输入的字符数，第二维度是时间步，第三维度是词表
+#         # Last time step logits (batch, vocab)
+#         # 即，对每一步的解码结果，取最后一个时间步的数据，作为输出的数据。解码的过程是第一次解码，输入 5 个 token，第二次解码依赖的是原来 5 个 token 的最后 4 个，加上上一步解码生成的一个，也是 5 个 token，如此循环。
+#         last_time_step_logits = logits[:, -1, :]
+#         # print('last_time_step_logits')
+#         # print(last_time_step_logits.shape)
+#         # 计算概率分布
+#         # Softmax for next-token distribution
+#         p = F.softmax(last_time_step_logits, dim=-1)
+#         # print('p_shape')
+#         # print(p.shape)
+#         # 根据概率分布计算下一个 token，这里使用 torch.multinomial 做的是随机采样
+#         # Sample next token
+#         idx_next = torch.multinomial(p, num_samples=1)
+#         # print('idx_next_shape')
+#         # print(idx_next.shape)
+#         # 将新的 idx 通过张量拼接写入到解码序列中
+#         # Append to sequence
+#         idx = torch.cat([idx, idx_next], dim=-1)
+#     # 使用之前定义的解码函数，将ID转换为汉字，我们得到的 5 行 21 列的数据，来源于每一个输入字符作为开始位置，生成 20 个字符。 因为 5 个输入都是 0 ，在词表中编号为 0 的数据是'\n'。
+#     # Decode IDs to text and return
+#     print(idx.shape)
+#     return [decode(x) for x in idx.tolist()]
 
-# 启动 FastAPI 应用
-# Run FastAPI app
-uvicorn.run(app, host="0.0.0.0", port=8000)
+# # 在 Colab 里启动还是挺麻烦的。  建议把所有代码整理一下，在服务器，或者个人电脑里运行
+# # Running in Colab is cumbersome; better to run on a server or local machine
+# import nest_asyncio
+# import uvicorn
 
-# 服务部署成功后，可以发送请求测试效果
-# After server is up, test with a request
-import requests
+# nest_asyncio.apply()
 
-input_data = {"idx": [[0]]}  # 根据需求提供输入数据
-# Provide input as needed
-response = requests.post("http://localhost:8000/generate/", json=input_data)
-print(response.json())
+# # 启动 FastAPI 应用
+# # Run FastAPI app
+# uvicorn.run(app, host="0.0.0.0", port=8000)
+
+# # 服务部署成功后，可以发送请求测试效果
+# # After server is up, test with a request
+# import requests
+
+# input_data = {"idx": [[0]]}  # 根据需求提供输入数据
+# # Provide input as needed
+# response = requests.post("http://localhost:8000/generate/", json=input_data)
+# print(response.json())
+############################################################################

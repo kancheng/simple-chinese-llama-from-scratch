@@ -10,9 +10,9 @@ The code in `main.py` walks through the evolution from a naive character-level l
 - Multi‑head self‑attention
 - SwiGLU activation
 - A stacked LLaMA‑like block architecture
-- Training, evaluation, sampling (`generate`) and simple FastAPI deployment
+- Training, evaluation, sampling (`generate`), and saving to `hf_model_save/`
 
-The implementation is intentionally simple and monolithic (everything in `main.py`) to make it easy to read and experiment with.
+**API 與 Demo 已獨立**：推理用模型在 `model_arch.py`，API 在 `server.py`（port 8000），網頁 Demo 在 `app.py`（port 5500）。`main.py` 僅負責訓練與保存，方便閱讀與實驗。
 
 ---
 
@@ -57,12 +57,11 @@ The implementation is intentionally simple and monolithic (everything in `main.p
     - `optimizer.pt` / `scheduler.pt` – optimizer and scheduler state
   - Demonstrates how to load weights back and run inference again
 
-- **FastAPI deployment example**
-  - Minimal FastAPI app exposing a `/generate/` endpoint
-  - Loads the trained LLaMA‑like model from disk
-  - Uses the same character‑level `generate` logic to return generated text
-
-> **Note**: The FastAPI part is adapted from a Jupyter/Colab notebook and may need some refactoring if you want to use it as a production‑grade API (e.g. function naming, request schema, GPU/CPU device handling).
+- **獨立 API 與 Demo**
+  - **server.py** – 獨立的 FastAPI 伺服器，從 `hf_model_save/` 載入模型，提供 `GET/POST /generate/`，埠 8000
+  - **app.py** – Demo 前端（單頁），埠 5500，可設定生成長度並呼叫 API 顯示結果
+  - **model_arch.py** – 推理用模型架構（Llama 與依賴），供 server 載入，無須執行 main.py
+  - 本機瀏覽請使用 **http://localhost:5500/** 或 **http://127.0.0.1:5500/**，勿使用 `0.0.0.0`（會 ERR_ADDRESS_INVALID）
 
 ---
 
@@ -70,9 +69,13 @@ The implementation is intentionally simple and monolithic (everything in `main.p
 
 ```text
 simplellm/
-├─ main.py          # All data, models, training and FastAPI example in one file
-├─ xiyouji.txt      # “Journey to the West” corpus (Chinese), used for training
-└─ requirements.txt # Python dependencies
+├─ main.py          # 資料、模型定義、訓練流程（無 API，僅訓練與保存）
+├─ model_arch.py    # 推理用模型架構（Llama 等），供 server 載入
+├─ server.py        # 獨立 API 伺服器（FastAPI，port 8000）
+├─ app.py           # Demo 前端（單頁，port 5500）
+├─ xiyouji.txt      # “Journey to the West” 語料（訓練用）
+├─ hf_model_save/   # 訓練後產生：pytorch_model.bin、config.json 等
+└─ requirements.txt # Python 依賴
 ```
 
 ---
@@ -148,38 +151,56 @@ pip install -r requirements.txt
    - Save checkpoints and configuration under `./hf_model_save/`
    - Print some generated text samples to the console
 
+   **Note**: API 已獨立至 `server.py`，執行 `main.py` 僅會訓練與保存，不會啟動 HTTP 服務。
+
 > **Warning**: Training is compute‑intensive. Hyperparameters such as `d_model`, `n_heads`, `n_layers`, `batch_size`, and `epochs` are stored in `MASTER_CONFIG`. You can lower them in `main.py` to speed up experiments on a CPU‑only machine.
 
 ---
 
-## Running the FastAPI Demo
+## Running the API (server.py)
 
-The latter part of `main.py` contains an example FastAPI application that serves the trained model via HTTP.
+API 已從 `main.py` 抽離，改由 **server.py** 提供。
 
-To run a similar service outside of Jupyter/Colab, the rough steps are:
+1. **先完成訓練並產生模型**（或已有 `./hf_model_save/` 下的權重與 `config.json`）。
 
-1. **Make sure you have trained and saved a model** (or have a pretrained checkpoint under `./hf_model_save/`).
-2. **Install API requirements** (already in `requirements.txt`):
+2. **啟動 API 伺服器**
 
    ```bash
-   pip install fastapi uvicorn pydantic nest_asyncio requests
+   python server.py
    ```
 
-3. **(Recommended) Extract the FastAPI section into a separate file**, e.g. `api.py`, and adapt it to:
-   - Import the `Llama` class and `MASTER_CONFIG`
-   - Load `pytorch_model.bin`
-   - Define a proper request model (`InputData`) and a clean `/generate` endpoint
-   - Run:
+   預設監聽 **port 8000**（`http://0.0.0.0:8000`）。本機呼叫請用：
 
-     ```bash
-     uvicorn api:app --host 0.0.0.0 --port 8000
-     ```
+   ```bash
+   curl -X POST "http://localhost:8000/generate/?max_new_tokens=30" -H "Content-Type: application/json" -d "{\"idx\": [[0]]}"
+   ```
 
-Then you can call the endpoint with:
+---
 
-```bash
-curl -X POST "http://localhost:8000/generate/" -H "Content-Type: application/json" -d "{\"idx\": [[0]]}"
-```
+## Running the Demo frontend (app.py)
+
+Demo 為單頁前端，會對上述 API 發 POST 請求並顯示生成結果。
+
+1. **先啟動 API**：`python server.py`（port 8000）。
+
+2. **啟動 Demo 前端**
+
+   ```bash
+   python app.py
+   ```
+
+   預設監聽 **port 5500**。啟動後終端會提示：
+
+   - 請在瀏覽器開啟 **http://localhost:5500/** 或 **http://127.0.0.1:5500/**
+
+3. **勿在瀏覽器使用 `http://0.0.0.0:5500/`**  
+   `0.0.0.0` 僅為伺服器綁定用，瀏覽器會出現 `ERR_ADDRESS_INVALID`，請改用 `localhost` 或 `127.0.0.1`。
+
+| 用途       | 指令            | 埠   |
+|------------|-----------------|------|
+| 訓練       | `python main.py` | —    |
+| API 服務   | `python server.py` | 8000 |
+| Demo 前端  | `python app.py` | 5500 |
 
 ---
 
@@ -212,7 +233,7 @@ This project is **for educational and experimental purposes only**:
 
 - It is not optimized for speed, memory usage, or production deployment.
 - The model is trained on a single literary work, so its outputs are limited and may not be coherent.
-- The FastAPI server example is intentionally minimal and should be refactored before any real‑world use.
+- The API (`server.py`) and Demo (`app.py`) are minimal and should be refactored before any real‑world use.
 
 That said, it is a great starting point if you want to:
 
